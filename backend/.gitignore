@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+
+# Production build
+dist/
+
+# Environment files
+.env
+.env.*
+!.env.example
+*.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Database & Cache
+*.tsbuildinfo
+dev.db
+dev.db-journal
