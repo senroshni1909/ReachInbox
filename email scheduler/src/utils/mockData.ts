@@ -127,13 +127,13 @@ export const INITIAL_SENT_EMAILS: EmailJob[] = [
 ];
 
 export const INITIAL_QUEUE_METRICS: QueueMetrics = {
-  waiting: 12,
-  active: 2,
-  delayed: 4,
-  completed: 785,
+  waiting: 3,
+  active: 0,
+  delayed: 1,
+  completed: 842,
   failed: 3,
   paused: false,
-  totalProcessed: 788,
+  totalProcessed: 845,
   currentThroughput: 18,
 };
 

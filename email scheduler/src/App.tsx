@@ -55,6 +55,12 @@ function DashboardContent() {
   const [slackConfig, setSlackConfig] = useState<SlackConfig>(INITIAL_SLACK_CONFIG);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  // Dynamic counts for Scheduled and Sent sidebar badges
+  const [counts, setCounts] = useState<{ scheduled: number; sent: number }>({
+    scheduled: INITIAL_QUEUE_METRICS.waiting + INITIAL_QUEUE_METRICS.delayed,
+    sent: INITIAL_QUEUE_METRICS.completed,
+  });
+
   const filterOptions = useMemo(
     () => ({
       search: debouncedSearch,
@@ -72,12 +78,17 @@ function DashboardContent() {
 
   const loadSystemData = async () => {
     try {
-      const [queueRes, slackRes] = await Promise.all([
+      const [queueRes, slackRes, countRes] = await Promise.all([
         emailApi.getQueueStats(),
         slackApi.getStatus(),
+        emailApi.getCounts(),
       ]);
       setQueueMetrics(queueRes.stats);
       setSlackConfig(slackRes.config);
+      setCounts({
+        scheduled: countRes.scheduledCount,
+        sent: countRes.sentCount,
+      });
     } catch {
       // Keep defaults
     }
@@ -85,6 +96,16 @@ function DashboardContent() {
 
   useEffect(() => {
     loadSystemData();
+
+    // Listen for realtime scheduling/cancellation events across the app
+    const handleDataChange = () => {
+      loadSystemData();
+    };
+
+    window.addEventListener('reachinbox:emails_changed', handleDataChange);
+    return () => {
+      window.removeEventListener('reachinbox:emails_changed', handleDataChange);
+    };
   }, []);
 
   const handleManualRefresh = async () => {
@@ -98,8 +119,8 @@ function DashboardContent() {
     setStarredJobs(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const scheduledCount = queueMetrics.waiting + queueMetrics.delayed || 12;
-  const sentCount = queueMetrics.completed || 785;
+  const scheduledCount = counts.scheduled;
+  const sentCount = counts.sent;
 
   return (
     <div className="min-h-screen bg-white text-[#1c1c1c] flex font-sans antialiased selection:bg-[#2fb762]/20 selection:text-[#2fb762]">

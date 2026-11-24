@@ -52,6 +52,9 @@ export function useEmails(activeTab: 'scheduled' | 'sent', filterOptions: Filter
       if (res.success) {
         setEmails(prev => prev.filter(e => e.id !== id));
         setTotal(prev => Math.max(0, prev - 1));
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('reachinbox:emails_changed'));
+        }
         toastRef.current({
           type: 'success',
           title: 'Job cancelled',

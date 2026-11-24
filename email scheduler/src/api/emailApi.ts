@@ -77,6 +77,10 @@ export const emailApi = {
     const updated = [...newJobs, ...existing];
     localStorage.setItem(LOCAL_STORAGE_KEY_SCHEDULED, JSON.stringify(updated));
 
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('reachinbox:emails_changed'));
+    }
+
     return {
       success: true,
       scheduledCount: newJobs.length,
@@ -161,7 +165,30 @@ export const emailApi = {
 
     const items = getStoredScheduled().filter(item => item.id !== id);
     localStorage.setItem(LOCAL_STORAGE_KEY_SCHEDULED, JSON.stringify(items));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('reachinbox:emails_changed'));
+    }
     return { success: true, isLive: false };
+  },
+
+  /**
+   * Get dynamic counts for Scheduled and Sent sidebar badges
+   */
+  async getCounts(): Promise<{ scheduledCount: number; sentCount: number }> {
+    try {
+      const { stats } = await this.getQueueStats();
+      return {
+        scheduledCount: stats.waiting + stats.delayed,
+        sentCount: stats.completed,
+      };
+    } catch {
+      const scheduled = getStoredScheduled();
+      const sent = getStoredSent();
+      return {
+        scheduledCount: scheduled.filter(s => s.status === 'scheduled' || s.status === 'delayed').length,
+        sentCount: sent.filter(s => s.status === 'sent').length + 840,
+      };
+    }
   },
 
   /**
