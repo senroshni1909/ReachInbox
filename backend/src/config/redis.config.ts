@@ -1,5 +1,5 @@
 import { RedisOptions } from 'ioredis';
-import { ENV } from './env.js';
+import { ENV } from './env.config.js';
 
 export const redisConnectionOptions: RedisOptions = {
   host: ENV.REDIS_HOST,
@@ -8,8 +8,7 @@ export const redisConnectionOptions: RedisOptions = {
   maxRetriesPerRequest: null,
   enableReadyCheck: false,
   retryStrategy(times: number) {
-    // Reconnection exponential backoff, capping at 30 seconds
-    const delay = Math.min(times * 500, 30000);
-    return delay;
+    // Exponential backoff capped at 30 seconds
+    return Math.min(times * 500, 30000);
   },
 };

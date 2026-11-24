@@ -1,25 +1,15 @@
 import { Queue } from 'bullmq';
-import { redisConnectionOptions } from '../config/redis.js';
+import { redisConnectionOptions } from '../config/redis.config.js';
 import { prisma } from '../lib/prisma.js';
 import { JobStatus } from '@prisma/client';
+import { EmailJobData, ScheduleRequestBody, QueueMetricsResponse } from '../types/index.js';
+import { ENV } from '../config/env.config.js';
 
-export interface EmailJobData {
-  jobDbId: string;
-  senderEmail: string;
-  recipient: string;
-  subject: string;
-  body: string;
-  scheduledTime: string;
-  delaySeconds: number;
-  hourlyLimit: number;
-  hourWindow: string;
-}
+let emailQueueInstance: Queue<EmailJobData> | null = null;
 
-let emailQueue: Queue<any> | null = null;
-
-export function getEmailQueue(): Queue<any> {
-  if (!emailQueue) {
-    const queue = new Queue('email-queue', {
+export function getEmailQueue(): Queue<EmailJobData> {
+  if (!emailQueueInstance) {
+    const queue = new Queue<EmailJobData>('email-queue', {
       connection: redisConnectionOptions as any,
       defaultJobOptions: {
         attempts: 3,
@@ -36,38 +26,43 @@ export function getEmailQueue(): Queue<any> {
       console.warn('⚠️ BullMQ Redis connection warning:', err.message);
     });
 
-    emailQueue = queue;
+    emailQueueInstance = queue;
   }
-  return emailQueue;
+  return emailQueueInstance;
 }
 
-export interface ScheduleBatchParams {
-  sender: string;
-  recipients: string[];
-  subject: string;
-  body: string;
-  startTime: string;
-  delayBetweenEmails: number;
-  hourlyLimit: number;
-  userId?: string;
-}
-
-export async function scheduleEmailBatch(params: ScheduleBatchParams) {
+export async function scheduleEmailBatch(params: ScheduleRequestBody) {
   const queue = getEmailQueue();
-  const startTimeMs = new Date(params.startTime).getTime();
+  const delaySeconds = params.delayBetweenEmails ?? ENV.DEFAULT_DELAY_SECONDS;
+  const hourlyLimit = params.hourlyLimit ?? ENV.DEFAULT_HOURLY_LIMIT;
+  const startTimeMs = params.startTime ? new Date(params.startTime).getTime() : Date.now();
+
+  // Ensure Sender record exists in DB to prevent foreign key errors
+  await prisma.sender.upsert({
+    where: { email: params.sender },
+    create: {
+      email: params.sender,
+      name: params.sender.split('@')[0],
+      hourlyLimit,
+    },
+    update: {
+      hourlyLimit,
+    },
+  });
+
   const createdJobs = [];
 
   for (let i = 0; i < params.recipients.length; i++) {
     const recipient = params.recipients[i];
-    const delayStepMs = i * (params.delayBetweenEmails * 1000);
-    const hourOffsetIndex = Math.floor(i / params.hourlyLimit);
+    const delayStepMs = i * (delaySeconds * 1000);
+    const hourOffsetIndex = Math.floor(i / hourlyLimit);
 
-    // Date calculation respecting rate limits across hourly windows
+    // Precise schedule calculation: base start + pacing delay + hourly bucket offset
     const scheduledDate = new Date(startTimeMs + delayStepMs + hourOffsetIndex * 3600 * 1000);
     const hourWindow = scheduledDate.toISOString().slice(0, 13); // e.g. "2026-11-24T23"
     const delayFromNow = Math.max(0, scheduledDate.getTime() - Date.now());
 
-    // 1. Create Job in database
+    // 1. Create EmailJob record in database
     const dbJob = await prisma.emailJob.create({
       data: {
         recipient,
@@ -75,8 +70,8 @@ export async function scheduleEmailBatch(params: ScheduleBatchParams) {
         subject: params.subject,
         body: params.body,
         scheduledTime: scheduledDate,
-        delaySeconds: params.delayBetweenEmails,
-        hourlyLimit: params.hourlyLimit,
+        delaySeconds,
+        hourlyLimit,
         hourWindow,
         status: hourOffsetIndex > 0 ? JobStatus.DELAYED : JobStatus.SCHEDULED,
         userId: params.userId,
@@ -94,8 +89,8 @@ export async function scheduleEmailBatch(params: ScheduleBatchParams) {
           subject: params.subject,
           body: params.body,
           scheduledTime: scheduledDate.toISOString(),
-          delaySeconds: params.delayBetweenEmails,
-          hourlyLimit: params.hourlyLimit,
+          delaySeconds,
+          hourlyLimit,
           hourWindow,
         },
         {
@@ -119,7 +114,6 @@ export async function scheduleEmailBatch(params: ScheduleBatchParams) {
 }
 
 export async function cancelJob(jobId: string) {
-  // Remove from BullMQ if present
   try {
     const queue = getEmailQueue();
     const bullJob = await queue.getJob(`job_${jobId}`);
@@ -127,17 +121,16 @@ export async function cancelJob(jobId: string) {
       await bullJob.remove();
     }
   } catch {
-    // Ignore queue failure
+    // BullMQ may be offline or job already completed
   }
 
-  // Update DB status or remove
   return await prisma.emailJob.update({
     where: { id: jobId },
     data: { status: JobStatus.CANCELLED },
   });
 }
 
-export async function getQueueMetrics() {
+export async function getQueueMetrics(): Promise<QueueMetricsResponse> {
   try {
     const queue = getEmailQueue();
     const [waiting, active, delayed, completed, failed] = await Promise.all([
@@ -148,7 +141,6 @@ export async function getQueueMetrics() {
       queue.getFailedCount(),
     ]);
 
-    // Also get database counts to ensure dynamic accuracy
     const [dbScheduled, dbDelayed, dbSent, dbFailed] = await Promise.all([
       prisma.emailJob.count({ where: { status: JobStatus.SCHEDULED } }),
       prisma.emailJob.count({ where: { status: JobStatus.DELAYED } }),
@@ -164,7 +156,6 @@ export async function getQueueMetrics() {
       failed: Math.max(failed, dbFailed),
     };
   } catch {
-    // Fallback directly to Prisma database counts
     const [dbScheduled, dbDelayed, dbSent, dbFailed] = await Promise.all([
       prisma.emailJob.count({ where: { status: JobStatus.SCHEDULED } }),
       prisma.emailJob.count({ where: { status: JobStatus.DELAYED } }),

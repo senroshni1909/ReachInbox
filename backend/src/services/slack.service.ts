@@ -1,5 +1,5 @@
 import { prisma } from '../lib/prisma.js';
-import { ENV } from '../config/env.js';
+import { ENV } from '../config/env.config.js';
 
 export async function sendSlackAlert(message: string): Promise<boolean> {
   const webhookUrl = ENV.SLACK_WEBHOOK_URL;

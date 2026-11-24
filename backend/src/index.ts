@@ -1,61 +1,40 @@
-import express from 'express';
-import cors from 'cors';
-import { ENV } from './config/env.js';
-import { emailRouter } from './routes/emailRoutes.js';
-import { queueRouter } from './routes/queueRoutes.js';
-import { slackRouter } from './routes/slackRoutes.js';
-import { initEmailWorker } from './services/workerService.js';
+import { createApp } from './app.js';
+import { ENV } from './config/env.config.js';
+import { verifySmtpConnection } from './config/smtp.config.js';
+import { initEmailWorker } from './services/worker.service.js';
 import { prisma } from './lib/prisma.js';
 
-const app = express();
+const app = createApp();
 
-// Middlewares
-app.use(
-  cors({
-    origin: '*',
-    credentials: true,
-  })
-);
-app.use(express.json());
+const server = app.listen(ENV.PORT, async () => {
+  console.log(`=======================================================`);
+  console.log(`🚀 ReachInbox Scheduler API running in TypeScript`);
+  console.log(`📡 URL: http://localhost:${ENV.PORT}`);
+  console.log(`📧 SMTP: ${ENV.SMTP_HOST}:${ENV.SMTP_PORT} (${ENV.SMTP_USER})`);
+  console.log(`=======================================================`);
 
-// Healthcheck
-app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
+  // Verify Ethereal SMTP connection
+  await verifySmtpConnection();
 
-// Mount Routes
-app.use('/api/emails', emailRouter);
-app.use('/api/queue', queueRouter);
-app.use('/api/slack', slackRouter);
-
-// Global Error Handler
-app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error('Unhandled Server Error:', err);
-  res.status(500).json({ error: err.message || 'Internal Server Error' });
-});
-
-// Start BullMQ Worker in background
-try {
-  initEmailWorker();
-} catch (err: any) {
-  console.warn('BullMQ Worker initialization warning:', err.message);
-}
-
-// Start Server
-const server = app.listen(ENV.PORT, () => {
-  console.log(`🚀 ReachInbox Backend running in TypeScript on http://localhost:${ENV.PORT}`);
+  // Initialize BullMQ background worker
+  try {
+    initEmailWorker();
+  } catch (err: any) {
+    console.warn(`BullMQ worker init warning: ${err.message}`);
+  }
 });
 
 // Graceful Shutdown
-async function shutdown() {
-  console.log('Shutting down server gracefully...');
+async function gracefulShutdown(signal: string) {
+  console.log(`\nReceived ${signal}. Shutting down server gracefully...`);
   server.close(async () => {
     await prisma.$disconnect();
+    console.log('✅ Server and database disconnected.');
     process.exit(0);
   });
 }
 
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 
 export default app;

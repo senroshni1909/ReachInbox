@@ -1,22 +1,23 @@
 import { Worker, Job } from 'bullmq';
-import { redisConnectionOptions } from '../config/redis.js';
-import { EmailJobData } from './queueService.js';
-import { sendEmail } from './emailService.js';
+import { redisConnectionOptions } from '../config/redis.config.js';
+import { EmailJobData } from '../types/index.js';
+import { sendEmail } from './email.service.js';
 import { prisma } from '../lib/prisma.js';
 import { JobStatus } from '@prisma/client';
-import { checkRateLimitAndAlert } from './slackService.js';
+import { checkRateLimitAndAlert } from './slack.service.js';
+import { ENV } from '../config/env.config.js';
 
-let emailWorker: Worker<EmailJobData> | null = null;
+let emailWorkerInstance: Worker<EmailJobData> | null = null;
 
-export function initEmailWorker() {
-  if (emailWorker) return emailWorker;
+export function initEmailWorker(): Worker<EmailJobData> {
+  if (emailWorkerInstance) return emailWorkerInstance;
 
-  emailWorker = new Worker<EmailJobData>(
+  emailWorkerInstance = new Worker<EmailJobData>(
     'email-queue',
     async (job: Job<EmailJobData>) => {
       const { jobDbId, senderEmail, recipient, subject, body, hourWindow, hourlyLimit } = job.data;
 
-      // 1. Mark as PROCESSING in DB
+      // 1. Mark as PROCESSING in database
       await prisma.emailJob.update({
         where: { id: jobDbId },
         data: { status: JobStatus.PROCESSING },
@@ -41,10 +42,10 @@ export function initEmailWorker() {
         },
       });
 
-      // 3. Check rate-limit alert threshold
+      // 3. Check rate-limit alert threshold for Slack
       await checkRateLimitAndAlert(senderEmail, hourWindow, hourlyLimit);
 
-      // 4. Send email via SMTP / Ethereal
+      // 4. Send email via Ethereal SMTP
       const sendResult = await sendEmail({
         from: senderEmail,
         to: recipient,
@@ -57,14 +58,14 @@ export function initEmailWorker() {
           where: { id: jobDbId },
           data: {
             status: JobStatus.FAILED,
-            errorMessage: sendResult.error || 'Failed to dispatch email',
+            errorMessage: sendResult.error || 'Failed to dispatch email via SMTP',
             attempts: { increment: 1 },
           },
         });
-        throw new Error(sendResult.error || 'Failed to dispatch email');
+        throw new Error(sendResult.error || 'Failed to dispatch email via SMTP');
       }
 
-      // 5. Update success state in database
+      // 5. Update success state in database with Ethereal preview URL
       await prisma.emailJob.update({
         where: { id: jobDbId },
         data: {
@@ -83,17 +84,17 @@ export function initEmailWorker() {
     },
     {
       connection: redisConnectionOptions as any,
-      concurrency: 5,
+      concurrency: ENV.WORKER_CONCURRENCY,
     }
   );
 
-  emailWorker.on('completed', job => {
-    console.log(`✅ [BullMQ] Job ${job.id} sent successfully.`);
+  emailWorkerInstance.on('completed', job => {
+    console.log(`✅ [BullMQ Worker] Job ${job.id} dispatched successfully to ${job.data.recipient}.`);
   });
 
-  emailWorker.on('failed', (job, err) => {
-    console.error(`❌ [BullMQ] Job ${job?.id} failed:`, err.message);
+  emailWorkerInstance.on('failed', (job, err) => {
+    console.error(`❌ [BullMQ Worker] Job ${job?.id} failed:`, err.message);
   });
 
-  return emailWorker;
+  return emailWorkerInstance;
 }
