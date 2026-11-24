@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { ToastProvider } from './context/ToastContext';
 import { LoginPage } from './components/auth/LoginPage';
 import { ComposePage } from './components/compose/ComposePage';
+import { EmailDetailPage } from './components/dashboard/EmailDetailPage';
 import { ComposeModal } from './components/compose/ComposeModal';
 import { EmailDetailsModal } from './components/dashboard/EmailDetailsModal';
 import { SlackIntegrationModal } from './components/dashboard/SlackIntegrationModal';
@@ -337,7 +338,7 @@ function DashboardContent() {
                 return (
                   <div
                     key={email.id}
-                    onClick={() => setInspectingEmail(email)}
+                    onClick={() => navigate(`/email/${email.id}`)}
                     className="flex items-center justify-between py-2.5 px-3 rounded-lg hover:bg-[#fafbfa] transition-colors cursor-pointer group"
                   >
                     <div className="flex items-center gap-4 min-w-0 flex-1">
@@ -444,6 +445,22 @@ function MainRouter() {
         element={
           <ProtectedRoute>
             <ComposePage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/email/:id"
+        element={
+          <ProtectedRoute>
+            <EmailDetailPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/email"
+        element={
+          <ProtectedRoute>
+            <EmailDetailPage />
           </ProtectedRoute>
         }
       />

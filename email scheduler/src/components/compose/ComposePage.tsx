@@ -33,6 +33,16 @@ export const ComposePage: React.FC = () => {
   const navigate = useNavigate();
   const { showToast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
+
+  // Rich text formatting state
+  const [showHeadingMenu, setShowHeadingMenu] = useState(false);
+  const [activeStyles, setActiveStyles] = useState({
+    bold: false,
+    italic: false,
+    underline: false,
+    strikeThrough: false,
+  });
 
   // Form states
   const [sender, setSender] = useState(AVAILABLE_SENDERS[0]);
@@ -42,6 +52,52 @@ export const ComposePage: React.FC = () => {
   const [body, setBody] = useState('');
   const [delaySeconds, setDelaySeconds] = useState(3);
   const [hourlyLimit, setHourlyLimit] = useState(50);
+
+  // Update active formatting button states based on cursor/selection
+  const updateActiveStyles = () => {
+    try {
+      setActiveStyles({
+        bold: document.queryCommandState('bold'),
+        italic: document.queryCommandState('italic'),
+        underline: document.queryCommandState('underline'),
+        strikeThrough: document.queryCommandState('strikeThrough'),
+      });
+    } catch {
+      // ignore
+    }
+  };
+
+  // Execute formatting on selected text without losing focus/selection
+  const format = (command: string, value: string | undefined = undefined) => {
+    if (editorRef.current) {
+      editorRef.current.focus();
+    }
+    document.execCommand(command, false, value);
+    if (editorRef.current) {
+      setBody(editorRef.current.innerHTML);
+    }
+    updateActiveStyles();
+  };
+
+  // Handle URL creation for selected text
+  const handleLink = () => {
+    if (editorRef.current) {
+      editorRef.current.focus();
+    }
+    const currentSelection = window.getSelection();
+    if (!currentSelection || currentSelection.isCollapsed) {
+      showToast({
+        type: 'info',
+        title: 'Select text first',
+        message: 'Please highlight the text you want to convert into a link.',
+      });
+      return;
+    }
+    const url = window.prompt('Enter link URL (e.g. https://reachinbox.ai):', 'https://');
+    if (url && url.trim()) {
+      format('createLink', url.trim());
+    }
+  };
 
   // Send Later Popover state
   const [isSendLaterOpen, setIsSendLaterOpen] = useState(false);
@@ -115,10 +171,11 @@ export const ComposePage: React.FC = () => {
 
     setIsSending(true);
     try {
+      const editorContent = editorRef.current ? editorRef.current.innerHTML : body;
       const payload = {
         sender,
         subject,
-        body: body.trim() || 'Hello, following up on our conversation.',
+        body: editorContent.trim() || 'Hello, following up on our conversation.',
         recipients: finalRecipients,
         startTime: new Date(scheduledStartTime).toISOString(),
         delayBetweenEmails: Number(delaySeconds) || 2,
@@ -376,34 +433,258 @@ export const ComposePage: React.FC = () => {
         {/* Row 5: Text Editor Area matching exact #fafafa rounded box */}
         <div className="bg-[#fafafa] border border-[#f0f0f2] rounded-2xl p-4 min-h-[360px] flex flex-col space-y-3">
           {/* Editor Toolbar matching exact icons */}
-          <div className="flex items-center gap-4 text-gray-400 border-b border-[#ebebeb] pb-3 text-xs overflow-x-auto select-none">
-            <button type="button" className="hover:text-black cursor-pointer"><RotateCcw className="w-3.5 h-3.5" /></button>
-            <button type="button" className="hover:text-black cursor-pointer"><RotateCw className="w-3.5 h-3.5" /></button>
-            <div className="h-3 w-px bg-gray-200" />
-            <button type="button" className="hover:text-black cursor-pointer font-serif font-bold text-xs flex items-center gap-0.5">Tt <ChevronsUpDown className="w-2.5 h-2.5" /></button>
-            <button type="button" className="hover:text-black cursor-pointer"><Bold className="w-3.5 h-3.5" /></button>
-            <button type="button" className="hover:text-black cursor-pointer"><Italic className="w-3.5 h-3.5" /></button>
-            <button type="button" className="hover:text-black cursor-pointer"><Underline className="w-3.5 h-3.5" /></button>
-            <div className="h-3 w-px bg-gray-200" />
-            <button type="button" className="hover:text-black cursor-pointer"><AlignLeft className="w-3.5 h-3.5" /></button>
-            <button type="button" className="hover:text-black cursor-pointer"><ChevronsUpDown className="w-3.5 h-3.5" /></button>
-            <div className="h-3 w-px bg-gray-200" />
-            <button type="button" className="hover:text-black cursor-pointer"><ListOrdered className="w-3.5 h-3.5" /></button>
-            <button type="button" className="hover:text-black cursor-pointer"><List className="w-3.5 h-3.5" /></button>
-            <button type="button" className="hover:text-black cursor-pointer"><Outdent className="w-3.5 h-3.5" /></button>
-            <button type="button" className="hover:text-black cursor-pointer"><Indent className="w-3.5 h-3.5" /></button>
-            <div className="h-3 w-px bg-gray-200" />
-            <button type="button" className="hover:text-black cursor-pointer"><Quote className="w-3.5 h-3.5" /></button>
-            <button type="button" className="hover:text-black cursor-pointer"><Link className="w-3.5 h-3.5" /></button>
-            <button type="button" className="hover:text-black cursor-pointer"><Strikethrough className="w-3.5 h-3.5" /></button>
+          <div className="flex items-center gap-2 sm:gap-3 text-gray-400 border-b border-[#ebebeb] pb-3 text-xs overflow-x-auto select-none">
+            {/* Undo */}
+            <button
+              type="button"
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => format('undo')}
+              className="p-1 hover:text-black hover:bg-gray-200/60 rounded cursor-pointer transition-colors"
+              title="Undo"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+            </button>
+
+            {/* Redo */}
+            <button
+              type="button"
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => format('redo')}
+              className="p-1 hover:text-black hover:bg-gray-200/60 rounded cursor-pointer transition-colors"
+              title="Redo"
+            >
+              <RotateCw className="w-3.5 h-3.5" />
+            </button>
+
+            <div className="h-3 w-px bg-gray-200 shrink-0" />
+
+            {/* Heading / Font selector */}
+            <div className="relative">
+              <button
+                type="button"
+                onMouseDown={e => e.preventDefault()}
+                onClick={() => setShowHeadingMenu(!showHeadingMenu)}
+                className={`px-1.5 py-0.5 rounded cursor-pointer font-serif font-bold text-xs flex items-center gap-0.5 transition-colors ${
+                  showHeadingMenu ? 'text-black bg-gray-200' : 'hover:text-black hover:bg-gray-200/60'
+                }`}
+                title="Text formatting / Heading"
+              >
+                Tt <ChevronsUpDown className="w-2.5 h-2.5" />
+              </button>
+
+              {showHeadingMenu && (
+                <div className="absolute left-0 top-full mt-1.5 w-36 bg-white border border-gray-200 rounded-xl shadow-xl py-1 z-50">
+                  <button
+                    type="button"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => {
+                      format('formatBlock', '<h1>');
+                      setShowHeadingMenu(false);
+                    }}
+                    className="w-full text-left px-3 py-1.5 text-sm font-bold text-gray-800 hover:bg-gray-100 transition-colors"
+                  >
+                    Heading 1
+                  </button>
+                  <button
+                    type="button"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => {
+                      format('formatBlock', '<h2>');
+                      setShowHeadingMenu(false);
+                    }}
+                    className="w-full text-left px-3 py-1.5 text-xs font-semibold text-gray-800 hover:bg-gray-100 transition-colors"
+                  >
+                    Heading 2
+                  </button>
+                  <button
+                    type="button"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => {
+                      format('formatBlock', '<h3>');
+                      setShowHeadingMenu(false);
+                    }}
+                    className="w-full text-left px-3 py-1.5 text-xs font-medium text-gray-800 hover:bg-gray-100 transition-colors"
+                  >
+                    Heading 3
+                  </button>
+                  <button
+                    type="button"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => {
+                      format('formatBlock', '<p>');
+                      setShowHeadingMenu(false);
+                    }}
+                    className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-100 transition-colors"
+                  >
+                    Normal Text
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Bold */}
+            <button
+              type="button"
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => format('bold')}
+              className={`p-1 rounded cursor-pointer transition-colors ${
+                activeStyles.bold ? 'text-black bg-gray-200 font-bold' : 'hover:text-black hover:bg-gray-200/60'
+              }`}
+              title="Bold (Ctrl+B)"
+            >
+              <Bold className="w-3.5 h-3.5" />
+            </button>
+
+            {/* Italic */}
+            <button
+              type="button"
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => format('italic')}
+              className={`p-1 rounded cursor-pointer transition-colors ${
+                activeStyles.italic ? 'text-black bg-gray-200' : 'hover:text-black hover:bg-gray-200/60'
+              }`}
+              title="Italic (Ctrl+I)"
+            >
+              <Italic className="w-3.5 h-3.5" />
+            </button>
+
+            {/* Underline */}
+            <button
+              type="button"
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => format('underline')}
+              className={`p-1 rounded cursor-pointer transition-colors ${
+                activeStyles.underline ? 'text-black bg-gray-200' : 'hover:text-black hover:bg-gray-200/60'
+              }`}
+              title="Underline (Ctrl+U)"
+            >
+              <Underline className="w-3.5 h-3.5" />
+            </button>
+
+            <div className="h-3 w-px bg-gray-200 shrink-0" />
+
+            {/* Align Left */}
+            <button
+              type="button"
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => format('justifyLeft')}
+              className="p-1 hover:text-black hover:bg-gray-200/60 rounded cursor-pointer transition-colors"
+              title="Align Left"
+            >
+              <AlignLeft className="w-3.5 h-3.5" />
+            </button>
+
+            {/* Align Center */}
+            <button
+              type="button"
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => format('justifyCenter')}
+              className="p-1 hover:text-black hover:bg-gray-200/60 rounded cursor-pointer transition-colors"
+              title="Align Center"
+            >
+              <ChevronsUpDown className="w-3.5 h-3.5" />
+            </button>
+
+            <div className="h-3 w-px bg-gray-200 shrink-0" />
+
+            {/* Numbered List */}
+            <button
+              type="button"
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => format('insertOrderedList')}
+              className="p-1 hover:text-black hover:bg-gray-200/60 rounded cursor-pointer transition-colors"
+              title="Numbered List"
+            >
+              <ListOrdered className="w-3.5 h-3.5" />
+            </button>
+
+            {/* Bullet List */}
+            <button
+              type="button"
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => format('insertUnorderedList')}
+              className="p-1 hover:text-black hover:bg-gray-200/60 rounded cursor-pointer transition-colors"
+              title="Bulleted List"
+            >
+              <List className="w-3.5 h-3.5" />
+            </button>
+
+            {/* Outdent */}
+            <button
+              type="button"
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => format('outdent')}
+              className="p-1 hover:text-black hover:bg-gray-200/60 rounded cursor-pointer transition-colors"
+              title="Decrease Indent"
+            >
+              <Outdent className="w-3.5 h-3.5" />
+            </button>
+
+            {/* Indent */}
+            <button
+              type="button"
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => format('indent')}
+              className="p-1 hover:text-black hover:bg-gray-200/60 rounded cursor-pointer transition-colors"
+              title="Increase Indent"
+            >
+              <Indent className="w-3.5 h-3.5" />
+            </button>
+
+            <div className="h-3 w-px bg-gray-200 shrink-0" />
+
+            {/* Blockquote */}
+            <button
+              type="button"
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => format('formatBlock', 'blockquote')}
+              className="p-1 hover:text-black hover:bg-gray-200/60 rounded cursor-pointer transition-colors"
+              title="Quote"
+            >
+              <Quote className="w-3.5 h-3.5" />
+            </button>
+
+            {/* Link */}
+            <button
+              type="button"
+              onMouseDown={e => e.preventDefault()}
+              onClick={handleLink}
+              className="p-1 hover:text-black hover:bg-gray-200/60 rounded cursor-pointer transition-colors"
+              title="Insert Link"
+            >
+              <Link className="w-3.5 h-3.5" />
+            </button>
+
+            {/* Strikethrough */}
+            <button
+              type="button"
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => format('strikeThrough')}
+              className={`p-1 rounded cursor-pointer transition-colors ${
+                activeStyles.strikeThrough ? 'text-black bg-gray-200' : 'hover:text-black hover:bg-gray-200/60'
+              }`}
+              title="Strikethrough"
+            >
+              <Strikethrough className="w-3.5 h-3.5" />
+            </button>
           </div>
 
-          {/* Text Area */}
-          <textarea
-            value={body}
-            onChange={e => setBody(e.target.value)}
-            placeholder="Type Your Reply..."
-            className="flex-1 w-full bg-transparent text-xs text-gray-800 placeholder-gray-400 outline-none resize-none leading-relaxed min-h-[280px]"
+          {/* Rich Contenteditable Editor */}
+          <div
+            ref={editorRef}
+            contentEditable
+            suppressContentEditableWarning
+            onInput={() => {
+              if (editorRef.current) {
+                setBody(editorRef.current.innerHTML);
+              }
+              updateActiveStyles();
+            }}
+            onKeyUp={updateActiveStyles}
+            onMouseUp={updateActiveStyles}
+            onSelect={updateActiveStyles}
+            data-placeholder="Type Your Reply..."
+            className="rich-editor flex-1 w-full bg-transparent text-xs text-gray-800 outline-none resize-none leading-relaxed min-h-[280px]"
           />
         </div>
       </div>
