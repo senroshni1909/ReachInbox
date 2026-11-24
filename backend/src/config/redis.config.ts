@@ -1,5 +1,5 @@
 import net from 'net';
-import { RedisOptions } from 'ioredis';
+import { Redis, RedisOptions } from 'ioredis';
 import { ENV } from './env.config.js';
 
 export const redisConnectionOptions: RedisOptions = {
@@ -16,6 +16,7 @@ export const redisConnectionOptions: RedisOptions = {
 };
 
 let cachedRedisStatus: boolean | null = null;
+let sharedRedisClient: Redis | null = null;
 
 export async function isRedisOnline(): Promise<boolean> {
   if (cachedRedisStatus !== null) return cachedRedisStatus;
@@ -44,4 +45,16 @@ export async function isRedisOnline(): Promise<boolean> {
 
     socket.connect(ENV.REDIS_PORT, ENV.REDIS_HOST);
   });
+}
+
+export async function getRedisClient(): Promise<Redis | null> {
+  const online = await isRedisOnline();
+  if (!online) return null;
+
+  if (!sharedRedisClient) {
+    const client = new Redis(redisConnectionOptions);
+    client.on('error', () => {});
+    sharedRedisClient = client;
+  }
+  return sharedRedisClient;
 }

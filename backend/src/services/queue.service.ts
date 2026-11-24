@@ -1,5 +1,5 @@
 import { Queue } from 'bullmq';
-import { redisConnectionOptions, isRedisOnline } from '../config/redis.config.js';
+import { redisConnectionOptions, isRedisOnline, getRedisClient } from '../config/redis.config.js';
 import { JobStatus } from '@prisma/client';
 import { EmailJobData, ScheduleRequestBody, QueueMetricsResponse } from '../types/index.js';
 import { ENV } from '../config/env.config.js';
@@ -104,6 +104,13 @@ export async function scheduleEmailBatch(params: ScheduleRequestBody) {
       userId: params.userId,
     });
 
+    // Structured Date and Time values for Redis storage
+    const scheduledAtISO = scheduledDate.toISOString();
+    const scheduledAtUTC = scheduledDate.toUTCString();
+    const scheduledTimestamp = scheduledDate.getTime();
+    const scheduledDateFormatted = scheduledDate.toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+    const createdAtISO = new Date().toISOString();
+
     // 2. Queue execution: Attempt BullMQ first, seamlessly fall back to local in-process timer
     let queuedViaBullMq = false;
     if (queue) {
@@ -116,17 +123,52 @@ export async function scheduleEmailBatch(params: ScheduleRequestBody) {
             recipient,
             subject: params.subject,
             body: params.body,
-            scheduledTime: scheduledDate.toISOString(),
+            scheduledTime: scheduledAtISO,
+            scheduledAtISO,
+            scheduledAtUTC,
+            scheduledTimestamp,
+            scheduledDateFormatted,
+            createdAtISO,
             delaySeconds,
+            delayMs: delayFromNow,
             hourlyLimit,
             hourWindow,
           },
-          { delay: delayFromNow, jobId: `job_${dbJob.id}` }
+          {
+            delay: delayFromNow,
+            jobId: `job_${dbJob.id}`,
+            timestamp: Date.now(),
+          }
         );
         await StoreService.updateJob(dbJob.id, { bullJobId: bullJob.id });
         queuedViaBullMq = true;
       } catch {
         queuedViaBullMq = false;
+      }
+    }
+
+    // 3. Persist exact date/time in Redis Hash and Sorted Set for fast inspection
+    const redis = await getRedisClient();
+    if (redis) {
+      try {
+        await redis.hset(`job:schedule:${dbJob.id}`, {
+          id: dbJob.id,
+          recipient,
+          senderEmail: params.sender,
+          subject: params.subject,
+          scheduledAtISO,
+          scheduledAtUTC,
+          scheduledTimestamp: String(scheduledTimestamp),
+          scheduledDateFormatted,
+          delayMs: String(delayFromNow),
+          status: 'scheduled',
+          createdAtISO,
+        });
+
+        // Store by timestamp score in Redis Sorted Set: Score = Unix ms of scheduled execution
+        await redis.zadd('jobs:by_scheduled_time', scheduledTimestamp, dbJob.id);
+      } catch {
+        // Ignore if Redis write fails
       }
     }
 
@@ -149,6 +191,16 @@ export async function cancelJob(jobId: string) {
     try {
       const bullJob = await queue.getJob(`job_${jobId}`);
       if (bullJob) await bullJob.remove();
+    } catch {
+      // Ignore
+    }
+  }
+
+  const redis = await getRedisClient();
+  if (redis) {
+    try {
+      await redis.hset(`job:schedule:${jobId}`, 'status', 'cancelled');
+      await redis.zrem('jobs:by_scheduled_time', jobId);
     } catch {
       // Ignore
     }

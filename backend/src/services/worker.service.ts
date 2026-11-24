@@ -1,5 +1,5 @@
 import { Worker, Job } from 'bullmq';
-import { redisConnectionOptions, isRedisOnline } from '../config/redis.config.js';
+import { redisConnectionOptions, isRedisOnline, getRedisClient } from '../config/redis.config.js';
 import { EmailJobData } from '../types/index.js';
 import { sendEmail } from './email.service.js';
 import { StoreService } from './store.service.js';
@@ -48,6 +48,22 @@ export async function initEmailWorker(): Promise<Worker<EmailJobData> | null> {
           etherealUrl: sendResult.etherealUrl,
           messageId: sendResult.messageId,
         });
+
+        // Update companion Redis schedule entry with completion time
+        const redis = await getRedisClient();
+        if (redis) {
+          try {
+            await redis.hset(`job:schedule:${jobDbId}`, {
+              status: 'sent',
+              dispatchedAtISO: new Date().toISOString(),
+              etherealUrl: sendResult.etherealUrl || '',
+              messageId: sendResult.messageId || '',
+            });
+            await redis.zrem('jobs:by_scheduled_time', jobDbId);
+          } catch {
+            // Ignore Redis write errors
+          }
+        }
 
         return {
           messageId: sendResult.messageId,

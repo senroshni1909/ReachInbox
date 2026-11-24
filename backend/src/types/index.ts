@@ -18,7 +18,13 @@ export interface EmailJobData {
   subject: string;
   body: string;
   scheduledTime: string;
+  scheduledAtISO: string;
+  scheduledAtUTC: string;
+  scheduledTimestamp: number;
+  scheduledDateFormatted: string;
+  createdAtISO: string;
   delaySeconds: number;
+  delayMs: number;
   hourlyLimit: number;
   hourWindow: string;
 }
