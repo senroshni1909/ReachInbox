@@ -153,6 +153,20 @@ export const emailApi = {
   },
 
   /**
+   * Fetch single email by ID directly from backend database
+   */
+  async getEmailById(id: string): Promise<{ data: EmailJob | null; isLive: boolean }> {
+    const live = await apiRequest<{ email: EmailJob }>(`/emails/${id}`);
+    if (live.isLive && live.data?.email) {
+      return { data: live.data.email, isLive: true };
+    }
+
+    const all = [...getStoredScheduled(), ...getStoredSent()];
+    const found = all.find(e => e.id === id) || null;
+    return { data: found, isLive: false };
+  },
+
+  /**
    * Cancel / delete a scheduled email
    */
   async cancelScheduled(id: string): Promise<{ success: boolean; isLive: boolean }> {

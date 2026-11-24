@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { scheduleEmailBatch, cancelJob } from '../services/queue.service.js';
-import { StoreService } from '../services/store.service.js';
+import { StoreService, formatJobToDto } from '../services/store.service.js';
 import { FormattedEmailJob } from '../types/index.js';
 
 export class EmailController {
@@ -25,17 +25,7 @@ export class EmailController {
       res.status(201).json({
         success: true,
         scheduledCount: jobs.length,
-        jobs: jobs.map(j => ({
-          id: j.id,
-          recipient: j.recipient,
-          sender: j.senderEmail,
-          subject: j.subject,
-          body: j.body,
-          scheduledTime: j.scheduledTime.toISOString(),
-          status: j.status.toLowerCase(),
-          delaySeconds: j.delaySeconds,
-          hourlyLimit: j.hourlyLimit,
-        })),
+        jobs: jobs.map(j => formatJobToDto(j)),
       });
     } catch (err: any) {
       console.error('Error in scheduleEmails:', err);
@@ -56,23 +46,7 @@ export class EmailController {
         status: status ? String(status) : undefined,
       });
 
-      const mapped: FormattedEmailJob[] = result.emails.map(e => ({
-        id: e.id,
-        recipient: e.recipient,
-        recipientName: e.recipientName || undefined,
-        subject: e.subject,
-        body: e.body,
-        sender: e.senderEmail,
-        scheduledTime: e.scheduledTime.toISOString(),
-        sentTime: e.sentTime ? e.sentTime.toISOString() : undefined,
-        status: e.status.toLowerCase(),
-        delaySeconds: e.delaySeconds,
-        delayBetweenEmails: e.delaySeconds,
-        hourlyLimit: e.hourlyLimit,
-        etherealUrl: e.etherealUrl || undefined,
-        createdAt: e.createdAt.toISOString(),
-      }));
-
+      const mapped: FormattedEmailJob[] = result.emails.map(e => formatJobToDto(e));
       res.json({ emails: mapped, total: result.total });
     } catch (err: any) {
       res.status(500).json({ error: err.message || 'Failed to fetch scheduled emails' });
@@ -92,26 +66,27 @@ export class EmailController {
         status: status ? String(status) : undefined,
       });
 
-      const mapped: FormattedEmailJob[] = result.emails.map(e => ({
-        id: e.id,
-        recipient: e.recipient,
-        recipientName: e.recipientName || undefined,
-        subject: e.subject,
-        body: e.body,
-        sender: e.senderEmail,
-        scheduledTime: e.scheduledTime.toISOString(),
-        sentTime: e.sentTime ? e.sentTime.toISOString() : undefined,
-        status: e.status.toLowerCase(),
-        delaySeconds: e.delaySeconds,
-        delayBetweenEmails: e.delaySeconds,
-        hourlyLimit: e.hourlyLimit,
-        etherealUrl: e.etherealUrl || undefined,
-        createdAt: e.createdAt.toISOString(),
-      }));
-
+      const mapped: FormattedEmailJob[] = result.emails.map(e => formatJobToDto(e));
       res.json({ emails: mapped, total: result.total });
     } catch (err: any) {
       res.status(500).json({ error: err.message || 'Failed to fetch sent emails' });
+    }
+  }
+
+  /**
+   * GET /api/emails/:id
+   */
+  static async getEmailById(req: Request, res: Response): Promise<void> {
+    try {
+      const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      const job = await StoreService.getJobById(id);
+      if (!job) {
+        res.status(404).json({ error: 'Email not found in database.' });
+        return;
+      }
+      res.json({ email: formatJobToDto(job) });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Failed to fetch email by ID' });
     }
   }
 
