@@ -130,11 +130,11 @@ export const INITIAL_QUEUE_METRICS: QueueMetrics = {
   waiting: 3,
   active: 0,
   delayed: 1,
-  completed: 842,
-  failed: 3,
+  completed: 2,
+  failed: 1,
   paused: false,
-  totalProcessed: 845,
-  currentThroughput: 18,
+  totalProcessed: 3,
+  currentThroughput: 0,
 };
 
 export const INITIAL_SLACK_CONFIG: SlackConfig = {

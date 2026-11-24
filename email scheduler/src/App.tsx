@@ -56,10 +56,7 @@ function DashboardContent() {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Dynamic counts for Scheduled and Sent sidebar badges
-  const [counts, setCounts] = useState<{ scheduled: number; sent: number }>({
-    scheduled: INITIAL_QUEUE_METRICS.waiting + INITIAL_QUEUE_METRICS.delayed,
-    sent: INITIAL_QUEUE_METRICS.completed,
-  });
+  const [counts, setCounts] = useState<{ scheduled: number; sent: number }>(() => emailApi.getCountsSync());
 
   const filterOptions = useMemo(
     () => ({
@@ -72,9 +69,19 @@ function DashboardContent() {
 
   const {
     emails,
+    total,
     isLoading,
     refresh,
   } = useEmails(activeTab, filterOptions);
+
+  // Keep badge counts strictly matched with the loaded list's real length
+  useEffect(() => {
+    if (activeTab === 'scheduled') {
+      setCounts(prev => ({ ...prev, scheduled: total }));
+    } else {
+      setCounts(prev => ({ ...prev, sent: total }));
+    }
+  }, [total, activeTab]);
 
   const loadSystemData = async () => {
     try {
@@ -86,11 +93,11 @@ function DashboardContent() {
       setQueueMetrics(queueRes.stats);
       setSlackConfig(slackRes.config);
       setCounts({
-        scheduled: countRes.scheduledCount,
-        sent: countRes.sentCount,
+        scheduled: countRes.scheduled,
+        sent: countRes.sent,
       });
     } catch {
-      // Keep defaults
+      // Keep current counts
     }
   };
 

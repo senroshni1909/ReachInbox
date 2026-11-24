@@ -1,6 +1,6 @@
 import { apiRequest } from './client';
 import type { EmailJob, SchedulePayload, QueueMetrics, FilterOptions } from '../types';
-import { INITIAL_SCHEDULED_EMAILS, INITIAL_SENT_EMAILS, INITIAL_QUEUE_METRICS } from '../utils/mockData';
+import { INITIAL_SCHEDULED_EMAILS, INITIAL_SENT_EMAILS } from '../utils/mockData';
 
 const LOCAL_STORAGE_KEY_SCHEDULED = 'reachinbox_scheduled_jobs_v1';
 const LOCAL_STORAGE_KEY_SENT = 'reachinbox_sent_jobs_v1';
@@ -172,23 +172,38 @@ export const emailApi = {
   },
 
   /**
-   * Get dynamic counts for Scheduled and Sent sidebar badges
+   * Synchronously compute counts directly from stored email lists
    */
-  async getCounts(): Promise<{ scheduledCount: number; sentCount: number }> {
+  getCountsSync(): { scheduled: number; sent: number } {
+    const scheduled = getStoredScheduled();
+    const sent = getStoredSent();
+    return {
+      scheduled: scheduled.filter(s => s.status === 'scheduled' || s.status === 'delayed').length,
+      sent: sent.length,
+    };
+  },
+
+  /**
+   * Get dynamic counts for Scheduled and Sent sidebar badges directly from live backend or storage
+   */
+  async getCounts(): Promise<{ scheduled: number; sent: number }> {
     try {
-      const { stats } = await this.getQueueStats();
-      return {
-        scheduledCount: stats.waiting + stats.delayed,
-        sentCount: stats.completed,
-      };
+      const [liveSched, liveSent] = await Promise.all([
+        apiRequest<{ total: number }>('/emails/scheduled?limit=1'),
+        apiRequest<{ total: number }>('/emails/sent?limit=1'),
+      ]);
+
+      if (liveSched.isLive && liveSched.data && liveSent.data) {
+        return {
+          scheduled: liveSched.data.total,
+          sent: liveSent.data.total,
+        };
+      }
     } catch {
-      const scheduled = getStoredScheduled();
-      const sent = getStoredSent();
-      return {
-        scheduledCount: scheduled.filter(s => s.status === 'scheduled' || s.status === 'delayed').length,
-        sentCount: sent.filter(s => s.status === 'sent').length + 840,
-      };
+      // Fallback to local storage
     }
+
+    return this.getCountsSync();
   },
 
   /**
@@ -204,11 +219,14 @@ export const emailApi = {
     const sent = getStoredSent();
 
     const stats: QueueMetrics = {
-      ...INITIAL_QUEUE_METRICS,
       waiting: scheduled.filter(s => s.status === 'scheduled').length,
+      active: 0,
       delayed: scheduled.filter(s => s.status === 'delayed').length,
-      completed: sent.filter(s => s.status === 'sent').length + 840,
-      failed: sent.filter(s => s.status === 'failed').length + 3,
+      completed: sent.filter(s => s.status === 'sent').length,
+      failed: sent.filter(s => s.status === 'failed').length,
+      paused: false,
+      totalProcessed: sent.length,
+      currentThroughput: 0,
     };
 
     return { stats, isLive: false };
