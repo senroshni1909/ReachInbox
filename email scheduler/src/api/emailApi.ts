@@ -1,34 +1,61 @@
 import { apiRequest } from './client';
 import type { EmailJob, SchedulePayload, QueueMetrics, FilterOptions } from '../types';
-import { INITIAL_SCHEDULED_EMAILS, INITIAL_SENT_EMAILS } from '../utils/mockData';
 
 const LOCAL_STORAGE_KEY_SCHEDULED = 'reachinbox_scheduled_jobs_v1';
 const LOCAL_STORAGE_KEY_SENT = 'reachinbox_sent_jobs_v1';
 
-// Initialize localStorage with mock data if not present
+const MOCK_JOB_IDS = new Set([
+  'job_sched_01',
+  'job_sched_02',
+  'job_sched_03',
+  'job_sched_04',
+  'job_sent_01',
+  'job_sent_02',
+  'job_sent_03',
+]);
+
+const MOCK_RECIPIENTS = new Set([
+  'john.smith@acme.com',
+  'olive@designcraft.io',
+  'elena.rostova@techscale.co',
+  'arthur.pendelton@apexventures.com',
+  'ceo@datacraft.ai',
+  'charlie.wu@cloudnexus.org',
+  'invalid-address@bouncetest.invalid',
+]);
+
+// Initialize localStorage without mock data and purge any legacy mock jobs
 function getStoredScheduled(): EmailJob[] {
   const raw = localStorage.getItem(LOCAL_STORAGE_KEY_SCHEDULED);
   if (!raw) {
-    localStorage.setItem(LOCAL_STORAGE_KEY_SCHEDULED, JSON.stringify(INITIAL_SCHEDULED_EMAILS));
-    return INITIAL_SCHEDULED_EMAILS;
+    return [];
   }
   try {
-    return JSON.parse(raw);
+    const list: EmailJob[] = JSON.parse(raw);
+    const filtered = list.filter(item => !MOCK_JOB_IDS.has(item.id) && !MOCK_RECIPIENTS.has(item.recipient));
+    if (filtered.length !== list.length) {
+      localStorage.setItem(LOCAL_STORAGE_KEY_SCHEDULED, JSON.stringify(filtered));
+    }
+    return filtered;
   } catch {
-    return INITIAL_SCHEDULED_EMAILS;
+    return [];
   }
 }
 
 function getStoredSent(): EmailJob[] {
   const raw = localStorage.getItem(LOCAL_STORAGE_KEY_SENT);
   if (!raw) {
-    localStorage.setItem(LOCAL_STORAGE_KEY_SENT, JSON.stringify(INITIAL_SENT_EMAILS));
-    return INITIAL_SENT_EMAILS;
+    return [];
   }
   try {
-    return JSON.parse(raw);
+    const list: EmailJob[] = JSON.parse(raw);
+    const filtered = list.filter(item => !MOCK_JOB_IDS.has(item.id) && !MOCK_RECIPIENTS.has(item.recipient));
+    if (filtered.length !== list.length) {
+      localStorage.setItem(LOCAL_STORAGE_KEY_SENT, JSON.stringify(filtered));
+    }
+    return filtered;
   } catch {
-    return INITIAL_SENT_EMAILS;
+    return [];
   }
 }
 

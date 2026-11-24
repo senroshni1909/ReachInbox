@@ -49,46 +49,7 @@ async function main() {
     },
   });
   console.log(`✅ Seeded default Slack integration.`);
-
-  // 4. Seed Initial Email Jobs (Scheduled + Sent)
-  const sampleJobs = [
-    {
-      recipient: 'elena.rostova@techscale.co',
-      recipientName: 'Elena Rostova',
-      subject: 'Scaling cold outreach with AI workflows for TechScale',
-      body: 'Hi Elena,\n\nSaw TechScale is expanding its outbound sales team. ReachInbox automates verified lead enrichment.\n\nBest,\nAlex',
-      senderEmail: 'outreach@reachinbox.ai',
-      scheduledTime: new Date(Date.now() + 15 * 60 * 1000),
-      status: JobStatus.SCHEDULED,
-      delaySeconds: 3,
-      hourlyLimit: 50,
-      hourWindow: '2026-11-24T01',
-      userId: defaultUser.id,
-    },
-    {
-      recipient: 'ceo@datacraft.ai',
-      recipientName: 'Jonathan Hayes',
-      subject: 'ReachInbox AI cold outreach benchmark report',
-      body: 'Hi Jonathan,\n\nWe prepared a custom lead conversion benchmark for DataCraft.\n\nWarm regards,\nAlex',
-      senderEmail: 'outreach@reachinbox.ai',
-      scheduledTime: new Date(Date.now() - 120 * 60 * 1000),
-      sentTime: new Date(Date.now() - 118 * 60 * 1000),
-      status: JobStatus.SENT,
-      delaySeconds: 2,
-      hourlyLimit: 50,
-      etherealUrl: 'https://ethereal.email/message/WaQKMgKddxQDoWBcWaQKMgKddxQDoWBd',
-      messageId: '<dc8319-ethereal-9104@reachinbox.ai>',
-      userId: defaultUser.id,
-    },
-  ];
-
-  for (const job of sampleJobs) {
-    await prisma.emailJob.create({
-      data: job,
-    });
-  }
-  console.log(`✅ Seeded sample scheduled and sent email jobs.`);
-  console.log('✨ Database seeding finished successfully.');
+  console.log('✨ Database seeding finished successfully (0 mock emails seeded).');
 }
 
 main()
