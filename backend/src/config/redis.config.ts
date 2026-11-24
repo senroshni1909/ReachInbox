@@ -1,3 +1,4 @@
+import net from 'net';
 import { RedisOptions } from 'ioredis';
 import { ENV } from './env.config.js';
 
@@ -7,8 +8,40 @@ export const redisConnectionOptions: RedisOptions = {
   password: ENV.REDIS_PASSWORD,
   maxRetriesPerRequest: null,
   enableReadyCheck: false,
-  retryStrategy(times: number) {
-    // Exponential backoff capped at 30 seconds
-    return Math.min(times * 500, 30000);
+  lazyConnect: true,
+  retryStrategy() {
+    // Return null to stop infinite reconnect spam if Redis is not installed
+    return null;
   },
 };
+
+let cachedRedisStatus: boolean | null = null;
+
+export async function isRedisOnline(): Promise<boolean> {
+  if (cachedRedisStatus !== null) return cachedRedisStatus;
+
+  return new Promise(resolve => {
+    const socket = new net.Socket();
+    socket.setTimeout(800);
+
+    socket.on('connect', () => {
+      socket.destroy();
+      cachedRedisStatus = true;
+      resolve(true);
+    });
+
+    socket.on('error', () => {
+      socket.destroy();
+      cachedRedisStatus = false;
+      resolve(false);
+    });
+
+    socket.on('timeout', () => {
+      socket.destroy();
+      cachedRedisStatus = false;
+      resolve(false);
+    });
+
+    socket.connect(ENV.REDIS_PORT, ENV.REDIS_HOST);
+  });
+}

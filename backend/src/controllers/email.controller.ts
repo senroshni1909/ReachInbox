@@ -1,13 +1,11 @@
 import { Request, Response } from 'express';
-import { prisma } from '../lib/prisma.js';
 import { scheduleEmailBatch, cancelJob } from '../services/queue.service.js';
-import { JobStatus, Prisma } from '@prisma/client';
+import { StoreService } from '../services/store.service.js';
 import { FormattedEmailJob } from '../types/index.js';
 
 export class EmailController {
   /**
    * POST /api/emails/schedule
-   * Schedules batch of emails with delay pacing and hourly limit constraints
    */
   static async scheduleEmails(req: Request, res: Response): Promise<void> {
     try {
@@ -40,6 +38,7 @@ export class EmailController {
         })),
       });
     } catch (err: any) {
+      console.error('Error in scheduleEmails:', err);
       res.status(500).json({ error: err.message || 'Failed to schedule emails' });
     }
   }
@@ -51,38 +50,13 @@ export class EmailController {
     try {
       const { q, sender, status } = req.query;
 
-      const where: Prisma.EmailJobWhereInput = {
-        status: {
-          in: [JobStatus.SCHEDULED, JobStatus.DELAYED, JobStatus.PROCESSING],
-        },
-      };
+      const result = await StoreService.getScheduled({
+        q: q ? String(q) : undefined,
+        sender: sender ? String(sender) : undefined,
+        status: status ? String(status) : undefined,
+      });
 
-      if (sender && sender !== 'all') {
-        where.senderEmail = String(sender);
-      }
-
-      if (status && status !== 'all') {
-        where.status = status as JobStatus;
-      }
-
-      if (q) {
-        const searchStr = String(q);
-        where.OR = [
-          { recipient: { contains: searchStr, mode: 'insensitive' } },
-          { subject: { contains: searchStr, mode: 'insensitive' } },
-          { body: { contains: searchStr, mode: 'insensitive' } },
-        ];
-      }
-
-      const [emails, total] = await Promise.all([
-        prisma.emailJob.findMany({
-          where,
-          orderBy: { scheduledTime: 'asc' },
-        }),
-        prisma.emailJob.count({ where }),
-      ]);
-
-      const mapped: FormattedEmailJob[] = emails.map(e => ({
+      const mapped: FormattedEmailJob[] = result.emails.map(e => ({
         id: e.id,
         recipient: e.recipient,
         recipientName: e.recipientName || undefined,
@@ -99,7 +73,7 @@ export class EmailController {
         createdAt: e.createdAt.toISOString(),
       }));
 
-      res.json({ emails: mapped, total });
+      res.json({ emails: mapped, total: result.total });
     } catch (err: any) {
       res.status(500).json({ error: err.message || 'Failed to fetch scheduled emails' });
     }
@@ -112,38 +86,13 @@ export class EmailController {
     try {
       const { q, sender, status } = req.query;
 
-      const where: Prisma.EmailJobWhereInput = {
-        status: {
-          in: [JobStatus.SENT, JobStatus.FAILED],
-        },
-      };
+      const result = await StoreService.getSent({
+        q: q ? String(q) : undefined,
+        sender: sender ? String(sender) : undefined,
+        status: status ? String(status) : undefined,
+      });
 
-      if (sender && sender !== 'all') {
-        where.senderEmail = String(sender);
-      }
-
-      if (status && status !== 'all') {
-        where.status = status as JobStatus;
-      }
-
-      if (q) {
-        const searchStr = String(q);
-        where.OR = [
-          { recipient: { contains: searchStr, mode: 'insensitive' } },
-          { subject: { contains: searchStr, mode: 'insensitive' } },
-          { body: { contains: searchStr, mode: 'insensitive' } },
-        ];
-      }
-
-      const [emails, total] = await Promise.all([
-        prisma.emailJob.findMany({
-          where,
-          orderBy: { sentTime: 'desc' },
-        }),
-        prisma.emailJob.count({ where }),
-      ]);
-
-      const mapped: FormattedEmailJob[] = emails.map(e => ({
+      const mapped: FormattedEmailJob[] = result.emails.map(e => ({
         id: e.id,
         recipient: e.recipient,
         recipientName: e.recipientName || undefined,
@@ -160,7 +109,7 @@ export class EmailController {
         createdAt: e.createdAt.toISOString(),
       }));
 
-      res.json({ emails: mapped, total });
+      res.json({ emails: mapped, total: result.total });
     } catch (err: any) {
       res.status(500).json({ error: err.message || 'Failed to fetch sent emails' });
     }

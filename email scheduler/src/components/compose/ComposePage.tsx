@@ -172,12 +172,15 @@ export const ComposePage: React.FC = () => {
     setIsSending(true);
     try {
       const editorContent = editorRef.current ? editorRef.current.innerHTML : body;
+      const scheduledDate = scheduledStartTime ? new Date(scheduledStartTime) : new Date();
+      const validStartTime = isNaN(scheduledDate.getTime()) ? new Date().toISOString() : scheduledDate.toISOString();
+
       const payload = {
         sender,
         subject,
         body: editorContent.trim() || 'Hello, following up on our conversation.',
         recipients: finalRecipients,
-        startTime: new Date(scheduledStartTime).toISOString(),
+        startTime: validStartTime,
         delayBetweenEmails: Number(delaySeconds) || 2,
         hourlyLimit: Number(hourlyLimit) || 50,
       };
@@ -187,14 +190,21 @@ export const ComposePage: React.FC = () => {
         showToast({
           type: 'success',
           title: 'Campaign scheduled!',
-          message: `${res.scheduledCount} email job(s) queued for ${new Date(scheduledStartTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`,
+          message: `${res.scheduledCount} email job(s) queued for delivery.`,
         });
         navigate('/dashboard');
+      } else {
+        showToast({
+          type: 'error',
+          title: 'Error scheduling emails',
+          message: 'Could not queue email jobs. Please check inputs and try again.',
+        });
       }
-    } catch {
+    } catch (err: any) {
       showToast({
         type: 'error',
         title: 'Error scheduling emails',
+        message: err?.message || 'Please check your inputs.',
       });
     } finally {
       setIsSending(false);
