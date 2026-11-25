@@ -22,7 +22,18 @@ export async function initEmailWorker(): Promise<Worker<EmailJobData> | null> {
     emailWorkerInstance = new Worker<EmailJobData>(
       'email-queue',
       async (job: Job<EmailJobData>) => {
-        const { jobDbId, senderEmail, recipient, subject, body, hourWindow, hourlyLimit } = job.data;
+        const { jobDbId, senderEmail, recipient, subject, body, hourWindow, hourlyLimit, attachments } = job.data;
+
+        // 1. Concurrency safety: Check current DB status to prevent race conditions or duplicate sends
+        const dbJob = await StoreService.getJobById(jobDbId);
+        if (!dbJob) {
+          console.log(`⏭️ [BullMQ Worker] Job ${jobDbId} was deleted. Skipping.`);
+          return { skipped: true, reason: 'deleted' };
+        }
+        if (dbJob.status === JobStatus.SENT || dbJob.status === JobStatus.CANCELLED) {
+          console.log(`⏭️ [BullMQ Worker] Job ${jobDbId} already in status '${dbJob.status}'. Skipping.`);
+          return { skipped: true, status: dbJob.status };
+        }
 
         await StoreService.updateJob(jobDbId, { status: JobStatus.PROCESSING });
         await checkRateLimitAndAlert(senderEmail, hourWindow, hourlyLimit);
@@ -32,6 +43,7 @@ export async function initEmailWorker(): Promise<Worker<EmailJobData> | null> {
           to: recipient,
           subject,
           body,
+          attachments,
         });
 
         if (!sendResult.success) {

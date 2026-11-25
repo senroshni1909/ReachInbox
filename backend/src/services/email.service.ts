@@ -2,12 +2,28 @@ import nodemailer from 'nodemailer';
 import { getTransporter } from '../config/smtp.config.js';
 import { SendEmailOptions, SendEmailResult } from '../types/index.js';
 
-export async function sendEmail({ from, to, subject, body }: SendEmailOptions): Promise<SendEmailResult> {
+export async function sendEmail({ from, to, subject, body, attachments }: SendEmailOptions): Promise<SendEmailResult> {
   try {
     const transporter = getTransporter();
 
     // Check if the body contains HTML markup
     const isHtml = /<[a-z][\s\S]*>/i.test(body);
+
+    // Convert attachments to Nodemailer format
+    const mailAttachments = attachments && attachments.length > 0
+      ? attachments.map(att => {
+          const rawBase64 = (att.content || att.dataUrl || '').replace(/^data:.*?;base64,/, '');
+          return {
+            filename: att.filename,
+            content: Buffer.from(rawBase64, 'base64'),
+            contentType: att.contentType || undefined,
+          };
+        })
+      : undefined;
+
+    if (mailAttachments && mailAttachments.length > 0) {
+      console.log(`📎 [SMTP Attachments] Attaching ${mailAttachments.length} file(s): ${mailAttachments.map(a => `${a.filename} (${a.content.length} bytes)`).join(', ')}`);
+    }
 
     const info = await transporter.sendMail({
       from,
@@ -15,6 +31,7 @@ export async function sendEmail({ from, to, subject, body }: SendEmailOptions): 
       subject,
       text: isHtml ? undefined : body,
       html: isHtml ? body : undefined,
+      attachments: mailAttachments,
     });
 
     const etherealUrl = nodemailer.getTestMessageUrl(info) || undefined;

@@ -31,6 +31,7 @@ export const StoreService = {
     hourWindow?: string;
     userId?: string;
     status: JobStatus;
+    attachments?: any;
   }) {
     return await prisma.emailJob.create({
       data: {
@@ -45,6 +46,7 @@ export const StoreService = {
         hourlyLimit: data.hourlyLimit,
         hourWindow: data.hourWindow,
         userId: data.userId,
+        attachments: data.attachments ?? undefined,
       },
     });
   },
@@ -57,6 +59,22 @@ export const StoreService = {
       where: { id },
       data: updates,
     });
+  },
+
+  /**
+   * Delete job permanently from PostgreSQL (or mark cancelled)
+   */
+  async deleteJob(id: string) {
+    try {
+      return await prisma.emailJob.delete({
+        where: { id },
+      });
+    } catch {
+      return await prisma.emailJob.update({
+        where: { id },
+        data: { status: JobStatus.CANCELLED },
+      });
+    }
   },
 
   /**
@@ -169,5 +187,6 @@ export function formatJobToDto(e: any): FormattedEmailJob {
     hourlyLimit: e.hourlyLimit,
     etherealUrl: e.etherealUrl || undefined,
     createdAt: e.createdAt instanceof Date ? e.createdAt.toISOString() : String(e.createdAt),
+    attachments: e.attachments ? (Array.isArray(e.attachments) ? e.attachments : JSON.parse(e.attachments)) : [],
   };
 }

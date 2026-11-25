@@ -5,12 +5,15 @@ import { EmailJobData, ScheduleRequestBody, QueueMetricsResponse } from '../type
 import { ENV } from '../config/env.config.js';
 import { StoreService, EmailJobEntity } from './store.service.js';
 import { sendEmail } from './email.service.js';
+import { initEmailWorker } from './worker.service.js';
 
 let emailQueueInstance: Queue<EmailJobData> | null = null;
 
 export async function getEmailQueue(): Promise<Queue<EmailJobData> | null> {
   const online = await isRedisOnline();
   if (!online) return null;
+
+  await initEmailWorker();
 
   if (!emailQueueInstance) {
     try {
@@ -47,6 +50,7 @@ async function processEmailDispatch(job: EmailJobEntity) {
       to: job.recipient,
       subject: job.subject,
       body: job.body,
+      attachments: (job as any).attachments,
     });
 
     if (result.success) {
@@ -102,6 +106,7 @@ export async function scheduleEmailBatch(params: ScheduleRequestBody) {
       hourWindow,
       status: hourOffsetIndex > 0 ? JobStatus.DELAYED : JobStatus.SCHEDULED,
       userId: params.userId,
+      attachments: params.attachments,
     });
 
     // Structured Date and Time values for Redis storage
@@ -133,6 +138,7 @@ export async function scheduleEmailBatch(params: ScheduleRequestBody) {
             delayMs: delayFromNow,
             hourlyLimit,
             hourWindow,
+            attachments: params.attachments,
           },
           {
             delay: delayFromNow,
@@ -142,7 +148,9 @@ export async function scheduleEmailBatch(params: ScheduleRequestBody) {
         );
         await StoreService.updateJob(dbJob.id, { bullJobId: bullJob.id });
         queuedViaBullMq = true;
-      } catch {
+        console.log(`🚀 [BullMQ] Job ${bullJob.id} successfully queued with Redis! Delay: ${delayFromNow}ms (firing at ${scheduledAtISO})`);
+      } catch (err: any) {
+        console.warn('⚠️ [BullMQ Warning]:', err.message);
         queuedViaBullMq = false;
       }
     }
@@ -167,8 +175,9 @@ export async function scheduleEmailBatch(params: ScheduleRequestBody) {
 
         // Store by timestamp score in Redis Sorted Set: Score = Unix ms of scheduled execution
         await redis.zadd('jobs:by_scheduled_time', scheduledTimestamp, dbJob.id);
-      } catch {
-        // Ignore if Redis write fails
+        console.log(`📦 [Redis] Persisted schedule metadata in hash job:schedule:${dbJob.id} and sorted set jobs:by_scheduled_time`);
+      } catch (err: any) {
+        console.warn('⚠️ [Redis Write Warning]:', err.message);
       }
     }
 
@@ -201,12 +210,13 @@ export async function cancelJob(jobId: string) {
     try {
       await redis.hset(`job:schedule:${jobId}`, 'status', 'cancelled');
       await redis.zrem('jobs:by_scheduled_time', jobId);
+      await redis.del(`job:schedule:${jobId}`);
     } catch {
       // Ignore
     }
   }
 
-  return await StoreService.updateJob(jobId, { status: JobStatus.CANCELLED });
+  return await StoreService.deleteJob(jobId);
 }
 
 export async function getQueueMetrics(): Promise<QueueMetricsResponse> {

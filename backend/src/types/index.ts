@@ -1,5 +1,14 @@
 import { JobStatus } from '@prisma/client';
 
+export interface EmailAttachment {
+  filename: string;
+  content: string; // base64 string
+  contentType?: string;
+  size?: number;
+  formattedSize?: string;
+  dataUrl?: string;
+}
+
 export interface ScheduleRequestBody {
   sender: string;
   recipients: string[];
@@ -9,6 +18,7 @@ export interface ScheduleRequestBody {
   delayBetweenEmails?: number;
   hourlyLimit?: number;
   userId?: string;
+  attachments?: EmailAttachment[];
 }
 
 export interface EmailJobData {
@@ -27,6 +37,7 @@ export interface EmailJobData {
   delayMs: number;
   hourlyLimit: number;
   hourWindow: string;
+  attachments?: EmailAttachment[];
 }
 
 export interface SendEmailOptions {
@@ -34,6 +45,7 @@ export interface SendEmailOptions {
   to: string;
   subject: string;
   body: string;
+  attachments?: EmailAttachment[];
 }
 
 export interface SendEmailResult {
@@ -58,6 +70,7 @@ export interface FormattedEmailJob {
   hourlyLimit: number;
   etherealUrl?: string;
   createdAt: string;
+  attachments?: EmailAttachment[];
 }
 
 export interface QueueMetricsResponse {

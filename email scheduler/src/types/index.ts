@@ -1,5 +1,14 @@
 export type EmailStatus = 'scheduled' | 'delayed' | 'processing' | 'sent' | 'failed' | 'cancelled';
 
+export interface EmailAttachment {
+  filename: string;
+  content: string; // base64 string or data url
+  contentType?: string;
+  size?: number;
+  formattedSize?: string;
+  dataUrl?: string;
+}
+
 export interface EmailJob {
   id: string;
   recipient: string;
@@ -20,6 +29,7 @@ export interface EmailJob {
   createdAt: string;
   hourWindow?: string;
   tags?: string[];
+  attachments?: EmailAttachment[];
 }
 
 export interface SchedulePayload {
@@ -30,6 +40,7 @@ export interface SchedulePayload {
   startTime: string; // ISO string
   delayBetweenEmails: number; // in seconds
   hourlyLimit: number;
+  attachments?: EmailAttachment[];
 }
 
 // Export class User so it satisfies both type and runtime export in ES modules

@@ -97,6 +97,7 @@ export const emailApi = {
         delayBetweenEmails: payload.delayBetweenEmails,
         hourlyLimit: payload.hourlyLimit,
         createdAt: new Date().toISOString(),
+        attachments: payload.attachments,
         tags: [`Delay: ${payload.delayBetweenEmails}s`, `Limit: ${payload.hourlyLimit}/hr`],
       };
     });
@@ -201,6 +202,9 @@ export const emailApi = {
       method: 'DELETE',
     });
     if (live.isLive && live.data?.success) {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('reachinbox:emails_changed'));
+      }
       return { success: true, isLive: true };
     }
 

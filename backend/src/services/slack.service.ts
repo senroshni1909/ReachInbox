@@ -22,23 +22,38 @@ export async function sendSlackAlert(message: string): Promise<boolean> {
   }
 }
 
-export async function checkRateLimitAndAlert(senderEmail: string, hourWindow: string, limit: number): Promise<void> {
+export async function recordSendAndCheckRateLimit(
+  senderEmail: string,
+  hourWindow: string,
+  limit: number
+): Promise<{ exceeded: boolean; currentCount: number }> {
   try {
-    const tracker = await prisma.hourlyRateLimitTracker.findUnique({
+    const tracker = await prisma.hourlyRateLimitTracker.upsert({
       where: {
         senderEmail_hourWindow: {
           senderEmail,
           hourWindow,
         },
       },
+      update: {
+        sentCount: { increment: 1 },
+      },
+      create: {
+        senderEmail,
+        hourWindow,
+        sentCount: 1,
+        limit,
+      },
     });
 
-    if (tracker && tracker.sentCount >= limit && !tracker.alertSent) {
+    const isExceeded = tracker.sentCount > limit;
+
+    if (isExceeded && !tracker.alertSent) {
       await sendSlackAlert(
         `⚠️ *Hourly Rate Limit Reached* for sender \`${senderEmail}\`.\n` +
         `Current Window: \`${hourWindow}\`\n` +
         `Emails sent: *${tracker.sentCount} / ${limit}*\n` +
-        `Subsequent jobs for this sender will automatically be delayed into the next hour window.`
+        `Parallel worker detected sender reached limit; subsequent jobs will be delayed into next hour window.`
       );
 
       await prisma.hourlyRateLimitTracker.update({
@@ -46,7 +61,14 @@ export async function checkRateLimitAndAlert(senderEmail: string, hourWindow: st
         data: { alertSent: true },
       });
     }
-  } catch {
-    // Graceful error handling
+
+    return { exceeded: isExceeded, currentCount: tracker.sentCount };
+  } catch (err: any) {
+    console.warn('Rate limit tracker warning:', err.message);
+    return { exceeded: false, currentCount: 0 };
   }
+}
+
+export async function checkRateLimitAndAlert(senderEmail: string, hourWindow: string, limit: number): Promise<void> {
+  await recordSendAndCheckRateLimit(senderEmail, hourWindow, limit);
 }

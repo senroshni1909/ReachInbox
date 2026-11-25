@@ -22,18 +22,24 @@ import {
   Strikethrough,
   X,
   CheckCircle2,
+  FileText,
 } from 'lucide-react';
 import { emailApi } from '../../api/emailApi';
 import { useToast } from '../../context/ToastContext';
 import { AVAILABLE_SENDERS } from '../../utils/mockData';
 import { parseEmailList } from '../../utils/csvParser';
 import { toDatetimeLocal } from '../../utils/dateFormatter';
+import type { EmailAttachment } from '../../types';
 
 export const ComposePage: React.FC = () => {
   const navigate = useNavigate();
   const { showToast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const attachmentInputRef = useRef<HTMLInputElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
+
+  // Attachments state
+  const [attachments, setAttachments] = useState<EmailAttachment[]>([]);
 
   // Rich text formatting state
   const [showHeadingMenu, setShowHeadingMenu] = useState(false);
@@ -107,6 +113,48 @@ export const ComposePage: React.FC = () => {
 
   const [isSending, setIsSending] = useState(false);
   const [senderDropdownOpen, setSenderDropdownOpen] = useState(false);
+
+  // Handle file attachments (images, pdfs, docs)
+  const handleAttachmentUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    const files = Array.from(e.target.files);
+
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = ev => {
+        const result = ev.target?.result as string;
+        if (result) {
+          const formattedSize =
+            file.size > 1024 * 1024
+              ? (file.size / (1024 * 1024)).toFixed(1) + ' MB'
+              : (file.size / 1024).toFixed(0) + ' KB';
+
+          const newAtt: EmailAttachment = {
+            filename: file.name,
+            content: result,
+            dataUrl: result,
+            contentType: file.type || 'application/octet-stream',
+            size: file.size,
+            formattedSize,
+          };
+
+          setAttachments(prev => [...prev, newAtt]);
+          showToast({
+            type: 'success',
+            title: 'File attached',
+            message: `${file.name} (${formattedSize}) added.`,
+          });
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+
+    e.target.value = '';
+  };
+
+  const removeAttachment = (indexToRemove: number) => {
+    setAttachments(prev => prev.filter((_, idx) => idx !== indexToRemove));
+  };
 
   // Handle CSV file upload
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -183,6 +231,7 @@ export const ComposePage: React.FC = () => {
         startTime: validStartTime,
         delayBetweenEmails: Number(delaySeconds) || 2,
         hourlyLimit: Number(hourlyLimit) || 50,
+        attachments: attachments.length > 0 ? attachments : undefined,
       };
 
       const res = await emailApi.scheduleEmails(payload);
@@ -222,6 +271,16 @@ export const ComposePage: React.FC = () => {
         onChange={handleFileUpload}
       />
 
+      {/* Hidden Attachment File Input (Images, PDFs, Docs) */}
+      <input
+        ref={attachmentInputRef}
+        type="file"
+        multiple
+        accept="image/*,application/pdf,.doc,.docx,.txt"
+        className="hidden"
+        onChange={handleAttachmentUpload}
+      />
+
       {/* Top Header */}
       <header className="h-[60px] px-6 border-b border-[#f0f1f3] flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -237,11 +296,16 @@ export const ComposePage: React.FC = () => {
 
         {/* Top Right Actions */}
         <div className="flex items-center gap-3 relative">
-          {/* Attach CSV leads */}
+          {/* Attach files (images, documents, PDFs) */}
           <button
-            onClick={() => fileInputRef.current?.click()}
-            className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-colors cursor-pointer"
-            title="Attach CSV/Text lead list"
+            type="button"
+            onClick={() => attachmentInputRef.current?.click()}
+            className={`p-2 rounded-full transition-colors cursor-pointer ${
+              attachments.length > 0
+                ? 'text-[#30b662] bg-[#e5f6ec]'
+                : 'text-gray-400 hover:text-gray-700 hover:bg-gray-100'
+            }`}
+            title="Attach image or file"
           >
             <Paperclip className="w-5 h-5" />
           </button>
@@ -697,6 +761,58 @@ export const ComposePage: React.FC = () => {
             className="rich-editor flex-1 w-full bg-transparent text-xs text-gray-800 outline-none resize-none leading-relaxed min-h-[280px]"
           />
         </div>
+
+        {/* Attachments Section below the text input box matching exact Figma Design */}
+        {attachments.length > 0 && (
+          <div className="pt-1 pb-6">
+            <div className="flex items-center gap-4 flex-wrap">
+              {attachments.map((att, idx) => (
+                <div
+                  key={idx}
+                  className="w-[160px] bg-white border border-[#e5e7eb] rounded-xl overflow-hidden shadow-xs relative group transition-all hover:border-[#30b662]"
+                >
+                  {/* Remove attachment button */}
+                  <button
+                    type="button"
+                    onClick={() => removeAttachment(idx)}
+                    className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/65 hover:bg-red-600 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-10 cursor-pointer shadow-sm"
+                    title="Remove attachment"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+
+                  {/* Thumbnail / File Preview */}
+                  <div className="h-[105px] w-full bg-[#f3f4f6] flex items-center justify-center overflow-hidden">
+                    {att.contentType?.startsWith('image/') || att.dataUrl?.startsWith('data:image/') ? (
+                      <img
+                        src={att.dataUrl || att.content}
+                        alt={att.filename}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex flex-col items-center gap-1 text-gray-400">
+                        <FileText className="w-8 h-8 text-gray-400" />
+                        <span className="text-[10px] uppercase font-semibold">
+                          {att.filename.split('.').pop() || 'FILE'}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Filename and Size */}
+                  <div className="p-2.5 bg-white border-t border-gray-100">
+                    <p className="text-xs font-semibold text-[#1c1c1c] truncate" title={att.filename}>
+                      {att.filename}
+                    </p>
+                    <p className="text-[11px] text-gray-400 mt-0.5">
+                      {att.formattedSize}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

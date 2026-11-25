@@ -1,7 +1,34 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
+
+declare global {
+  interface Window {
+    google?: any;
+  }
+}
+
+const GOOGLE_CLIENT_ID = '515412423983-m7b78e953sfv1kl2bdkcgvfhontl4lft.apps.googleusercontent.com';
+
+// Parse JWT ID token payload from Google
+function parseJwt(token: string) {
+  try {
+    const base64Url = token.split('.')[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(
+      window
+        .atob(base64)
+        .split('')
+        .map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    );
+    return JSON.parse(jsonPayload);
+  } catch (e) {
+    console.error('Failed to parse JWT payload', e);
+    return null;
+  }
+}
 
 export const LoginPage: React.FC = () => {
   const { loginWithGoogle, isAuthenticated } = useAuth();
@@ -11,6 +38,7 @@ export const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const hiddenGoogleBtnRef = useRef<HTMLDivElement>(null);
 
   // If already authenticated, redirect to dashboard
   useEffect(() => {
@@ -19,23 +47,179 @@ export const LoginPage: React.FC = () => {
     }
   }, [isAuthenticated, navigate]);
 
-  const handleGoogleLogin = () => {
-    setIsLoading(true);
-    setTimeout(() => {
-      loginWithGoogle({
-        name: 'Oliver Brown',
-        email: 'oliver.brown@domain.io',
-        avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
-        provider: 'google',
-      });
-      setIsLoading(false);
+  // Handle Google Credential Response (ID Token)
+  const handleCredentialResponse = (response: any) => {
+    try {
+      setIsLoading(true);
+      if (response && response.credential) {
+        const payload = parseJwt(response.credential);
+        const name = payload?.name || payload?.given_name || 'Google User';
+        const userEmail = payload?.email || 'user@gmail.com';
+        const picture =
+          payload?.picture ||
+          `https://api.dicebear.com/7.x/avataaars/svg?seed=${userEmail}`;
+
+        loginWithGoogle({
+          name,
+          email: userEmail,
+          avatar: picture,
+          provider: 'google',
+        });
+
+        showToast({
+          type: 'success',
+          title: 'Google Login Successful',
+          message: `Welcome, ${name}! Redirecting to dashboard...`,
+        });
+
+        navigate('/dashboard', { replace: true });
+      } else {
+        throw new Error('No credential received');
+      }
+    } catch (err: any) {
+      console.error('Error handling Google login credential:', err);
       showToast({
-        type: 'success',
-        title: 'Logged in with Google',
-        message: 'Welcome back, Oliver Brown! Redirecting to dashboard...',
+        type: 'error',
+        title: 'Google Login Failed',
+        message: err?.message || 'Failed to authenticate with Google.',
       });
-      navigate('/dashboard', { replace: true });
-    }, 400);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Initialize Google Identity Services
+  useEffect(() => {
+    const initGsi = () => {
+      if (window.google?.accounts?.id) {
+        try {
+          window.google.accounts.id.initialize({
+            client_id: GOOGLE_CLIENT_ID,
+            callback: handleCredentialResponse,
+            auto_select: false,
+            cancel_on_tap_outside: true,
+          });
+
+          // Render a hidden button that we can trigger or use standard prompt
+          if (hiddenGoogleBtnRef.current) {
+            window.google.accounts.id.renderButton(hiddenGoogleBtnRef.current, {
+              type: 'standard',
+              theme: 'outline',
+              size: 'large',
+            });
+          }
+        } catch (e) {
+          console.error('Failed to initialize Google Accounts ID:', e);
+        }
+      }
+    };
+
+    // If script already loaded
+    if (window.google?.accounts?.id) {
+      initGsi();
+    } else {
+      // Retry in intervals if script is still loading
+      const interval = setInterval(() => {
+        if (window.google?.accounts?.id) {
+          initGsi();
+          clearInterval(interval);
+        }
+      }, 200);
+      return () => clearInterval(interval);
+    }
+  }, []);
+
+  // Trigger Google Login
+  const handleGoogleLogin = () => {
+    if (!window.google?.accounts) {
+      showToast({
+        type: 'info',
+        title: 'Loading Google Services',
+        message: 'Google login is still initializing. Please try again in a moment.',
+      });
+      return;
+    }
+
+    try {
+      // First attempt: Token client for popup OAuth flow
+      if (window.google.accounts.oauth2) {
+        const client = window.google.accounts.oauth2.initTokenClient({
+          client_id: GOOGLE_CLIENT_ID,
+          scope: 'email profile openid',
+          callback: async (tokenResponse: any) => {
+            if (tokenResponse?.access_token) {
+              try {
+                setIsLoading(true);
+                // Fetch profile info from Google UserInfo endpoint
+                const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+                  headers: {
+                    Authorization: `Bearer ${tokenResponse.access_token}`,
+                  },
+                });
+                const profile = await res.json();
+                loginWithGoogle({
+                  name: profile.name || profile.given_name || 'Google User',
+                  email: profile.email || 'user@gmail.com',
+                  avatar:
+                    profile.picture ||
+                    `https://api.dicebear.com/7.x/avataaars/svg?seed=${profile.email}`,
+                  provider: 'google',
+                });
+                showToast({
+                  type: 'success',
+                  title: 'Google Login Successful',
+                  message: `Welcome, ${profile.name}! Redirecting to dashboard...`,
+                });
+                navigate('/dashboard', { replace: true });
+              } catch (fetchErr) {
+                console.error('Error fetching user info from Google:', fetchErr);
+                showToast({
+                  type: 'error',
+                  title: 'Profile Fetch Error',
+                  message: 'Could not fetch Google profile details.',
+                });
+              } finally {
+                setIsLoading(false);
+              }
+            } else if (tokenResponse?.error) {
+              console.warn('Token client response error:', tokenResponse);
+              showToast({
+                type: 'error',
+                title: 'Google Login Failed',
+                message: tokenResponse.error_description || tokenResponse.error || 'Authentication error',
+              });
+            }
+          },
+          error_callback: (error: any) => {
+            console.error('Google OAuth error:', error);
+            showToast({
+              type: 'error',
+              title: 'OAuth Error',
+              message: error?.message || 'Google OAuth popup was closed or blocked.',
+            });
+          },
+        });
+        client.requestAccessToken();
+      } else if (window.google.accounts.id) {
+        // Fallback to Google One Tap / prompt
+        window.google.accounts.id.prompt((notification: any) => {
+          if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+            // If One Tap is suppressed, click the hidden standard Google button
+            const hiddenBtn = hiddenGoogleBtnRef.current?.querySelector('div[role="button"]') as HTMLElement;
+            if (hiddenBtn) {
+              hiddenBtn.click();
+            }
+          }
+        });
+      }
+    } catch (e: any) {
+      console.error('Google Sign In error:', e);
+      showToast({
+        type: 'error',
+        title: 'Login Error',
+        message: e?.message || 'Unable to open Google sign-in window.',
+      });
+    }
   };
 
   const handleEmailLogin = (e: React.FormEvent) => {
@@ -64,6 +248,9 @@ export const LoginPage: React.FC = () => {
 
   return (
     <div className="min-h-screen w-full bg-white flex items-center justify-center p-4 selection:bg-[#00a63e]/20 selection:text-[#00a63e]">
+      {/* Hidden container for Google GSI fallback rendering */}
+      <div ref={hiddenGoogleBtnRef} className="hidden" aria-hidden="true" />
+
       {/* Centered Login Card */}
       <div className="w-full max-w-[340px] bg-white border border-[#ebecee] rounded-2xl p-7 shadow-[0_2px_16px_rgba(0,0,0,0.03)]">
         {/* Title */}
@@ -97,7 +284,7 @@ export const LoginPage: React.FC = () => {
               d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
             />
           </svg>
-          <span>Login with Google</span>
+          <span>{isLoading ? 'Opening Google...' : 'Login with Google'}</span>
         </button>
 
         {/* Divider: or sign up through email */}

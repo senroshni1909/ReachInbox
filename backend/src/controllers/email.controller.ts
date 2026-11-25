@@ -9,7 +9,7 @@ export class EmailController {
    */
   static async scheduleEmails(req: Request, res: Response): Promise<void> {
     try {
-      const { sender, recipients, subject, body, startTime, delayBetweenEmails, hourlyLimit, userId } = req.body;
+      const { sender, recipients, subject, body, startTime, delayBetweenEmails, hourlyLimit, userId, attachments } = req.body;
 
       const jobs = await scheduleEmailBatch({
         sender,
@@ -20,6 +20,7 @@ export class EmailController {
         delayBetweenEmails,
         hourlyLimit,
         userId,
+        attachments,
       });
 
       res.status(201).json({

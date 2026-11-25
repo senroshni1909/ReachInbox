@@ -16,10 +16,17 @@ export const redisConnectionOptions: RedisOptions = {
 };
 
 let cachedRedisStatus: boolean | null = null;
+let lastCheckedAt = 0;
 let sharedRedisClient: Redis | null = null;
 
 export async function isRedisOnline(): Promise<boolean> {
-  if (cachedRedisStatus !== null) return cachedRedisStatus;
+  const now = Date.now();
+  // Cache positive check for 30s, retry negative check after 2s
+  const cacheTtl = cachedRedisStatus === true ? 30000 : 2000;
+  if (cachedRedisStatus !== null && now - lastCheckedAt < cacheTtl) {
+    return cachedRedisStatus;
+  }
+  lastCheckedAt = now;
 
   return new Promise(resolve => {
     const socket = new net.Socket();

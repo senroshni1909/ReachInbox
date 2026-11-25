@@ -9,6 +9,7 @@ import {
   AlertCircle,
   Copy,
   Check,
+  FileText,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -223,6 +224,48 @@ export const EmailDetailPage: React.FC = () => {
             </div>
           )}
         </div>
+
+        {/* Attachments (if attached to this email) */}
+        {email.attachments && email.attachments.length > 0 && (
+          <div className="pt-4 border-t border-gray-100 space-y-2">
+            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              Attachments ({email.attachments.length})
+            </h4>
+            <div className="flex items-center gap-4 flex-wrap">
+              {email.attachments.map((att, idx) => (
+                <div
+                  key={idx}
+                  className="w-[160px] bg-white border border-[#e5e7eb] rounded-xl overflow-hidden shadow-xs"
+                >
+                  <div className="h-[105px] w-full bg-[#f3f4f6] flex items-center justify-center overflow-hidden">
+                    {att.contentType?.startsWith('image/') || att.dataUrl?.startsWith('data:image/') || att.content?.startsWith('data:image/') ? (
+                      <img
+                        src={att.dataUrl || att.content}
+                        alt={att.filename}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex flex-col items-center gap-1 text-gray-400">
+                        <FileText className="w-8 h-8 text-gray-400" />
+                        <span className="text-[10px] uppercase font-semibold">
+                          {att.filename.split('.').pop() || 'FILE'}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="p-2.5 bg-white border-t border-gray-100">
+                    <p className="text-xs font-semibold text-[#1c1c1c] truncate" title={att.filename}>
+                      {att.filename}
+                    </p>
+                    <p className="text-[11px] text-gray-400 mt-0.5">
+                      {att.formattedSize || 'Attachment'}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Live Ethereal SMTP Link */}
         {email.etherealUrl && (

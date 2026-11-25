@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { ToastProvider } from './context/ToastContext';
+import { ToastProvider, useToast } from './context/ToastContext';
 import { LoginPage } from './components/auth/LoginPage';
 import { ComposePage } from './components/compose/ComposePage';
 import { EmailDetailPage } from './components/dashboard/EmailDetailPage';
@@ -9,6 +9,7 @@ import { ComposeModal } from './components/compose/ComposeModal';
 import { EmailDetailsModal } from './components/dashboard/EmailDetailsModal';
 import { SlackIntegrationModal } from './components/dashboard/SlackIntegrationModal';
 import { GoogleLoginModal } from './components/auth/GoogleLoginModal';
+import { DeleteConfirmationModal } from './components/dashboard/DeleteConfirmationModal';
 import { useEmails } from './hooks/useEmails';
 import { useDebounce } from './hooks/useDebounce';
 import { emailApi } from './api/emailApi';
@@ -23,6 +24,7 @@ import {
   Filter,
   RotateCw,
   Star,
+  Trash2,
   ChevronDown,
   LogOut,
   Activity,
@@ -33,6 +35,7 @@ import {
 
 function DashboardContent() {
   const { user, logout } = useAuth();
+  const { showToast } = useToast();
   const navigate = useNavigate();
 
   const [activeTab, setActiveTab] = useState<'scheduled' | 'sent'>('scheduled');
@@ -41,6 +44,8 @@ function DashboardContent() {
   const [selectedStatus] = useState('all');
   const [starredJobs, setStarredJobs] = useState<Record<string, boolean>>({});
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
+  const [emailToDelete, setEmailToDelete] = useState<EmailJob | null>(null);
+  const [isDeletingJob, setIsDeletingJob] = useState(false);
 
   const debouncedSearch = useDebounce(searchQuery, 300);
 
@@ -124,6 +129,29 @@ function DashboardContent() {
   const toggleStar = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setStarredJobs(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!emailToDelete) return;
+    setIsDeletingJob(true);
+    try {
+      await emailApi.cancelScheduled(emailToDelete.id);
+      showToast({
+        type: 'success',
+        title: 'Job Deleted',
+        message: `Scheduled email to ${emailToDelete.recipientName || emailToDelete.recipient} was deleted.`,
+      });
+      setEmailToDelete(null);
+      await Promise.all([refresh(), loadSystemData()]);
+    } catch (err: any) {
+      showToast({
+        type: 'error',
+        title: 'Delete Failed',
+        message: err.message || 'Could not delete the scheduled email.',
+      });
+    } finally {
+      setIsDeletingJob(false);
+    }
   };
 
   const scheduledCount = counts.scheduled;
@@ -262,33 +290,6 @@ function DashboardContent() {
             </nav>
           </div>
         </div>
-
-        {/* Sidebar Footer: System Status */}
-        <div className="pt-4 border-t border-gray-100 space-y-2">
-          <div
-            onClick={() => setIsSlackOpen(true)}
-            className="flex items-center justify-between text-[11px] text-gray-500 hover:text-gray-900 cursor-pointer p-1 rounded hover:bg-gray-50"
-          >
-            <span className="flex items-center gap-1.5">
-              <span className={`w-2 h-2 rounded-full ${slackConfig.connected ? 'bg-[#2fb762]' : 'bg-amber-400'}`} />
-              <span>Slack Alerts</span>
-            </span>
-            <span className="text-[10px] text-gray-400">{slackConfig.connected ? 'Active' : 'Off'}</span>
-          </div>
-
-          <a
-            href="http://localhost:5000/admin/queues"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-between text-[11px] text-gray-500 hover:text-gray-900 cursor-pointer p-1 rounded hover:bg-gray-50"
-          >
-            <span className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-[#2fb762] animate-pulse" />
-              <span>BullMQ Queue</span>
-            </span>
-            <span className="text-[10px] text-gray-400">{queueMetrics.active} active</span>
-          </a>
-        </div>
       </aside>
 
       {/* 2. Main Content Area matching exact Figma Design */}
@@ -375,11 +376,17 @@ function DashboardContent() {
                         To: {recipientDisplay}
                       </div>
 
-                      {/* Orange/Peach Scheduled Time Pill */}
-                      <div className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#fff1e3] text-[#d45828] text-[11px] font-medium border border-[#ffe0c2]/50 shadow-xs">
-                        <Clock className="w-3 h-3 text-[#d45828]" />
-                        <span>{formatFigmaTime(email.scheduledTime || email.sentTime)}</span>
-                      </div>
+                      {/* Pill: Scheduled tab shows orange/peach time pill; Sent tab shows clean gray 'Sent' badge matching Figma */}
+                      {activeTab === 'sent' ? (
+                        <div className="shrink-0 inline-flex items-center px-2.5 py-0.5 rounded-full bg-[#edf0f2] text-[#6b7280] text-[11px] font-medium">
+                          <span>Sent</span>
+                        </div>
+                      ) : (
+                        <div className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#fff1e3] text-[#d45828] text-[11px] font-medium border border-[#ffe0c2]/50 shadow-xs">
+                          <Clock className="w-3 h-3 text-[#d45828]" />
+                          <span>{formatFigmaTime(email.scheduledTime || email.sentTime)}</span>
+                        </div>
+                      )}
 
                       {/* Subject and Snippet */}
                       <div className="min-w-0 flex-1 flex items-baseline gap-1 text-xs truncate">
@@ -392,17 +399,35 @@ function DashboardContent() {
                       </div>
                     </div>
 
-                    {/* Star Icon on the right */}
-                    <button
-                      onClick={e => toggleStar(email.id, e)}
-                      className="p-1 text-gray-300 hover:text-amber-400 transition-colors ml-3 cursor-pointer shrink-0"
-                    >
-                      <Star
-                        className={`w-4 h-4 ${
-                          isStarred ? 'fill-amber-400 text-amber-400' : 'text-gray-300 hover:text-amber-400'
-                        }`}
-                      />
-                    </button>
+                    {/* Actions on the right: Delete + Star (only on scheduled page matching Figma) */}
+                    {activeTab === 'scheduled' && (
+                      <div className="flex items-center gap-1.5 shrink-0 ml-3">
+                        <button
+                          type="button"
+                          onClick={e => {
+                            e.stopPropagation();
+                            setEmailToDelete(email);
+                          }}
+                          title="Delete scheduled email"
+                          className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+
+                        {/* Star Icon on the right */}
+                        <button
+                          type="button"
+                          onClick={e => toggleStar(email.id, e)}
+                          className="p-1 text-gray-300 hover:text-amber-400 transition-colors cursor-pointer shrink-0"
+                        >
+                          <Star
+                            className={`w-4 h-4 ${
+                              isStarred ? 'fill-amber-400 text-amber-400' : 'text-gray-300 hover:text-amber-400'
+                            }`}
+                          />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -437,6 +462,14 @@ function DashboardContent() {
       <GoogleLoginModal
         isOpen={isLoginOpen}
         onClose={() => setIsLoginOpen(false)}
+      />
+
+      <DeleteConfirmationModal
+        isOpen={!!emailToDelete}
+        email={emailToDelete}
+        onClose={() => !isDeletingJob && setEmailToDelete(null)}
+        onConfirm={handleConfirmDelete}
+        isDeleting={isDeletingJob}
       />
     </div>
   );

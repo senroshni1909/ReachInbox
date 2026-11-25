@@ -71,6 +71,7 @@ model EmailJob {
   errorMessage       String?    @db.Text
   etherealUrl        String?    @db.Text // Direct URL to view sent email on Ethereal fake SMTP
   messageId          String?    // SMTP transport message ID
+  attachments        Json?      // Attached files (name, contentType, size, content base64)
   
   userId             String?
   user               User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
